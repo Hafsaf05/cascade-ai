@@ -42,10 +42,13 @@ class AuditLog(Base):
 def init_db() -> None:
     Base.metadata.create_all(engine)
     with SessionLocal.begin() as session:
-        if session.scalar(select(Transaction.id).limit(1)) is not None:
-            return
         root = Path(__file__).resolve().parents[1]
-        for file in (root / "data" / "train.csv", root / "data" / "test.csv"):
+        source_files = [root / "data" / "train.csv", root / "data" / "test.csv"]
+        source_count = sum(len(pd.read_csv(file)) for file in source_files if file.exists())
+        if session.scalar(select(Transaction.id).limit(1)) is not None and session.query(Transaction).count() == source_count:
+            return
+        session.query(Transaction).delete()
+        for file in source_files:
             if file.exists():
                 for row in pd.read_csv(file, parse_dates=["timestamp"]).to_dict("records"):
                     session.add(Transaction(**row))

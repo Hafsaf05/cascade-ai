@@ -26,30 +26,63 @@ def build_dataset() -> pd.DataFrame:
         timestamp = start + pd.Timedelta(minutes=random.randint(0, 60 * 24 * 40))
         rows.append({
             "transaction_id": f"txn-{index + 1:05d}", "customer_id": f"customer-{customer:04d}",
-            "device_id": random.choice(devices), "ip": random.choice(ips),
+            "device_id": random.choice(devices[:120]) if random.random() < 0.18 else random.choice(devices),
+            "ip": random.choice(ips[:24]) if random.random() < 0.18 else random.choice(ips),
             "payment_instrument": random.choice(instruments), "address": random.choice(addresses),
             "amount": round(float(np.clip(np.random.lognormal(3.8, 0.65), 8, 850)), 2),
-            "timestamp": timestamp, "label": "normal",
+            "timestamp": timestamp, "label": "normal", "_difficulty": "", "_cascade_id": "",
         })
 
     next_id = 3001
-    for cascade_index in range(10):
-        center = start + pd.Timedelta(days=3 + cascade_index * 4)
+    cascade_centers = [3, 6, 9, 12, 15, 18, 21, 24, 27, 33, 36, 39]
+    for cascade_index, center_day in enumerate(cascade_centers):
+        level = cascade_index % 3 + 1
+        center = start + pd.Timedelta(days=center_day)
         shared_device = f"cascade-device-{cascade_index:02d}"
         shared_ip = f"203.0.113.{cascade_index + 10}"
         shared_instrument = f"cascade-card-{cascade_index:02d}"
-        for member in range(random.randint(5, 10)):
-            customer = f"cascade-customer-{cascade_index:02d}-{member:02d}"
+        members = random.randint(5, 8)
+        cascade_customers = [f"cascade-customer-{cascade_index:02d}-{member:02d}" for member in range(members)]
+        for member, customer in enumerate(cascade_customers):
             for _ in range(random.randint(3, 4)):
-                timestamp = center + pd.Timedelta(minutes=random.randint(0, 14))
+                if level == 1:
+                    timestamp = center + pd.Timedelta(minutes=random.randint(0, 14))
+                elif level == 2:
+                    timestamp = center + pd.Timedelta(minutes=random.randint(0, 150))
+                else:
+                    timestamp = center + pd.Timedelta(minutes=random.randint(0, 8 * 60))
+                if level == 1:
+                    device_id = shared_device
+                    ip = shared_ip
+                    payment_instrument = shared_instrument
+                    amount = round(float(np.random.uniform(80, 420)), 2)
+                elif level == 2:
+                    device_id = shared_device if member % 2 == 0 else random.choice(devices)
+                    ip = shared_ip
+                    payment_instrument = shared_instrument if member == 0 else random.choice(instruments)
+                    amount = round(float(np.clip(np.random.lognormal(3.8, 0.65), 8, 420)), 2)
+                else:
+                    device_id = random.choice(devices)
+                    ip = shared_ip
+                    payment_instrument = random.choice(instruments)
+                    amount = round(float(np.clip(np.random.lognormal(3.8, 0.65), 8, 250)), 2)
                 rows.append({
                     "transaction_id": f"txn-{next_id:05d}", "customer_id": customer,
-                    "device_id": shared_device if member != 0 else f"device-unique-{cascade_index}-{member}",
-                    "ip": shared_ip if member % 3 else f"198.51.100.{cascade_index + 1}",
-                    "payment_instrument": shared_instrument if member % 2 else f"card-unique-{cascade_index}-{member}",
+                    "device_id": device_id, "ip": ip, "payment_instrument": payment_instrument,
                     "address": f"cascade-address-{cascade_index:02d}-{member:02d}",
-                    "amount": round(float(np.random.uniform(120, 650)), 2),
-                    "timestamp": timestamp, "label": "cascade",
+                    "amount": amount, "timestamp": timestamp, "label": "cascade",
+                    "_difficulty": f"level_{level}", "_cascade_id": f"cascade-{cascade_index:02d}",
+                })
+                next_id += 1
+        if level == 3:
+            for noise_index, customer in enumerate(cascade_customers[:3]):
+                rows.append({
+                    "transaction_id": f"txn-{next_id:05d}", "customer_id": customer,
+                    "device_id": random.choice(devices), "ip": random.choice(ips),
+                    "payment_instrument": random.choice(instruments), "address": random.choice(addresses),
+                    "amount": round(float(np.clip(np.random.lognormal(3.8, 0.65), 8, 250)), 2),
+                    "timestamp": center + pd.Timedelta(minutes=30 + noise_index * 70),
+                    "label": "normal", "_difficulty": "", "_cascade_id": "",
                 })
                 next_id += 1
     return pd.DataFrame(rows).sort_values("timestamp").reset_index(drop=True)
@@ -61,8 +94,11 @@ def main() -> None:
     split_at = frame["timestamp"].quantile(0.8)
     train = frame[frame["timestamp"] <= split_at].copy()
     test = frame[frame["timestamp"] > split_at].copy()
+    metadata = frame[["transaction_id", "_difficulty", "_cascade_id"]].rename(columns={"_difficulty": "difficulty", "_cascade_id": "cascade_id"})
+    metadata.to_csv(output_dir / "tier_metadata.csv", index=False)
+    model_columns = ["transaction_id", "customer_id", "device_id", "ip", "payment_instrument", "address", "amount", "timestamp", "label"]
     for output, subset in (("train.csv", train), ("test.csv", test)):
-        subset.assign(timestamp=subset["timestamp"].dt.strftime("%Y-%m-%dT%H:%M:%S")).to_csv(output_dir / output, index=False)
+        subset[model_columns].assign(timestamp=subset["timestamp"].dt.strftime("%Y-%m-%dT%H:%M:%S")).to_csv(output_dir / output, index=False)
     print(f"Generated {len(frame)} transactions: {len(train)} train, {len(test)} test")
     print(f"Cascade labels: {int((frame['label'] == 'cascade').sum())}")
 

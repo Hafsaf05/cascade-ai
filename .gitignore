@@ -7,13 +7,14 @@ __pycache__/
 # Virtual environments
 .venv/
 venv/
+env/
 
 # Environment files
 .env
 .env.*
 !.env.example
 
-# Database
+# Databases
 *.db
 *.sqlite
 *.sqlite3
