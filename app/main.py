@@ -15,7 +15,7 @@ async def lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title="Sentinel AI - Risk Cascade", lifespan=lifespan)
+app = FastAPI(title="Cascade - Advanced Risk Engineering for Minimum-Friction Risk Detection", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 app.include_router(router)
 
