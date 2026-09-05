@@ -1,0 +1,42 @@
+import React, { useEffect, useState } from 'react'
+import { createRoot } from 'react-dom/client'
+import { Activity, ArrowRight, BarChart3, ChevronDown, CircleAlert, Radar, ShieldCheck, SlidersHorizontal, Sparkles } from 'lucide-react'
+import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { api } from './api'
+import './styles.css'
+
+const money = (value) => `$${Number(value || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`
+
+function Shell({ page, setPage, children }) {
+  return <div className="app-shell"><aside><div className="brand"><div className="brand-mark"><Radar size={20} /></div><div><strong>Sentinel</strong><span>Risk Cascade</span></div></div><div className="nav-label">CONTROL ROOM</div>{[['dashboard', BarChart3, 'Dashboard'], ['detail', CircleAlert, 'Cascade detail'], ['simulator', SlidersHorizontal, 'Response simulator']].map(([id, Icon, label]) => <button className={page === id ? 'nav-item active' : 'nav-item'} onClick={() => setPage(id)} key={id}><Icon size={17} />{label}</button>)}<div className="side-status"><span className="pulse" />Live scoring<br /><small>Models synchronized</small></div></aside><main><header><div><p className="eyebrow">FRAUD OPERATIONS / 05 SEP 2026</p><h1>{page === 'dashboard' ? 'Risk command center' : page === 'detail' ? 'Cascade intelligence' : 'Response simulator'}</h1></div><div className="header-chip"><Activity size={15} />Pipeline healthy</div></header>{children}</main></div>
+}
+
+function Dashboard({ setPage, setSelected }) {
+  const [cascades, setCascades] = useState([]); const [metrics, setMetrics] = useState(null)
+  useEffect(() => { Promise.all([api.cascades(), api.metrics()]).then(([data, stats]) => { setCascades(data); setMetrics(stats) }).catch(console.error) }, [])
+  return <><section className="metrics-row"><Metric label="Active cascades" value={cascades.length} note="Across monitored windows" /><Metric label="Held-out F1" value={metrics ? `${(metrics.f1 * 100).toFixed(1)}%` : '—'} note="Chronological test split" /><Metric label="False-positive rate" value={metrics ? `${(metrics.false_positive_rate * 100).toFixed(2)}%` : '—'} note="Current model threshold" /></section><section className="section-heading"><div><p className="eyebrow">LIVE QUEUE</p><h2>Active risk cascades</h2></div><span className="sort-control">Highest score <ChevronDown size={15} /></span></section><div className="cascade-table"><div className="table-head"><span>CASCADE</span><span>SCORE</span><span>TRANSACTIONS</span><span>ACCOUNTS</span><span>WINDOW</span><span /></div>{cascades.map((item) => <button className="table-row" key={item.cascade_id} onClick={() => { setSelected(item.cascade_id); setPage('detail') }}><span className="cascade-name"><span className="risk-dot" />{item.cascade_id}</span><span className="score-pill">{item.cascade_score.toFixed(2)}</span><span>{item.transaction_count}</span><span>{item.account_count}</span><span>{new Date(item.start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} — {new Date(item.end).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span><ArrowRight size={16} /></button>)}</div></>
+}
+
+function Metric({ label, value, note }) { return <div className="metric"><span>{label}</span><strong>{value}</strong><small>{note}</small></div> }
+
+function Detail({ selected, setPage }) {
+  const [data, setData] = useState(null)
+  useEffect(() => { if (selected) api.cascade(selected).then(setData).catch(console.error) }, [selected])
+  if (!data) return <Empty text="Select a cascade from the dashboard." />
+  const chartData = ['individual', 'anomaly', 'temporal', 'relational'].map((key) => ({ name: key, value: data.breakdown[key] }))
+  return <><div className="back-link" onClick={() => setPage('dashboard')}>← Back to queue</div><div className="detail-grid"><section className="panel detail-main"><div className="panel-title"><div><p className="eyebrow">{data.cascade_id}</p><h2>Signal breakdown</h2></div><span className="score-large">{data.breakdown.cascade_score.toFixed(2)}</span></div><div className="chart"><ResponsiveContainer width="100%" height={240}><BarChart data={chartData} layout="vertical" margin={{ left: 10, right: 20 }}><XAxis type="number" domain={[0, 1]} hide /><YAxis type="category" dataKey="name" width={75} tickLine={false} axisLine={false} /><Tooltip formatter={(value) => value.toFixed(3)} /><Bar dataKey="value" fill="#ed6a5a" radius={[0, 4, 4, 0]} barSize={20} /></BarChart></ResponsiveContainer></div><div className="entity-grid"><Entity label="Shared devices" value={Object.keys(data.graph.device || {}).length} /><Entity label="Shared IPs" value={Object.keys(data.graph.ip || {}).length} /><Entity label="Payment links" value={Object.keys(data.graph.payment_instrument || {}).length} /></div></section><section className="panel explain"><div className="ai-title"><Sparkles size={17} />Investigator brief</div><p>{data.explanation.summary}</p><div className="recommend"><span>Recommended action</span><strong>{data.explanation.recommended_action}</strong></div><button className="primary" onClick={() => setPage('simulator')}>Open response simulator <ArrowRight size={16} /></button></section></div><section className="panel transactions"><div className="panel-title"><h2>Transaction neighborhood</h2><span>{data.transactions.length} events</span></div><div className="mini-table"><div className="table-head"><span>TRANSACTION</span><span>AMOUNT</span><span>INDIVIDUAL</span><span>RELATIONAL</span><span>ACTION</span></div>{data.transactions.slice(0, 8).map((row) => <div className="table-row" key={row.transaction_id}><span>{row.transaction_id}</span><span>{money(row.amount)}</span><span>{row.individual.toFixed(2)}</span><span>{row.relational.toFixed(2)}</span><span className="action-tag">{row.action}</span></div>)}</div></section></>
+}
+function Entity({ label, value }) { return <div><span>{label}</span><strong>{value}</strong></div> }
+
+function Simulator({ selected }) {
+  const [data, setData] = useState(null); const [applied, setApplied] = useState(false)
+  useEffect(() => { if (selected) api.cascade(selected).then((cascade) => api.simulate(selected, cascade.transactions)).then(setData).catch(console.error) }, [selected])
+  if (!data) return <Empty text="Open a cascade first to simulate its response." />
+  const labels = { allow_all: 'Allow all', block_all: 'Block all', minimum_friction: 'Minimum-friction' }
+  return <><section className="sim-intro"><div><p className="eyebrow">DECISION SUPPORT / {selected}</p><h2>Choose the least costly defense.</h2><p>Compare expected loss before committing an action across this cascade.</p></div><div className="recommend-badge"><ShieldCheck size={17} />{labels[data.recommended]} recommended</div></section><div className="strategy-grid">{Object.entries(data.strategies).map(([key, strategy]) => <article className={key === data.recommended ? 'strategy recommended' : 'strategy'} key={key}><div className="strategy-top"><span>{labels[key]}</span>{key === data.recommended && <span className="best">BEST VALUE</span>}</div><strong>{money(strategy.expected_loss)}</strong><small>Expected loss</small><div className="cost-line"><span>False-positive cost</span><b>{money(strategy.false_positive_cost)}</b></div><div className="cost-line"><span>Actions</span><b>{strategy.actions.length}</b></div><button className={key === data.recommended ? 'primary full' : 'secondary full'} onClick={() => api.action(selected, key === 'allow_all' ? 'ALLOW' : key === 'block_all' ? 'HOLD' : 'STEP_UP').then(() => setApplied(true))}>{applied && key === data.recommended ? 'Action recorded' : 'Apply strategy'} <ArrowRight size={15} /></button></article>)}</div></>
+}
+function Empty({ text }) { return <div className="empty"><CircleAlert size={24} /><p>{text}</p></div> }
+
+function App() { const [page, setPage] = useState('dashboard'); const [selected, setSelected] = useState(null); return <Shell page={page} setPage={setPage}>{page === 'dashboard' && <Dashboard setPage={setPage} setSelected={setSelected} />}{page === 'detail' && <Detail selected={selected} setPage={setPage} />}{page === 'simulator' && <Simulator selected={selected} />}</Shell> }
+
+createRoot(document.getElementById('root')).render(<App />)
